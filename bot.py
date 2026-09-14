@@ -258,8 +258,22 @@ def set_webhook():
         print(f"Webhook set to {full_url}")
 
 
+def set_commands():
+    commands = [
+        telebot.types.BotCommand("start", "Start the bot"),
+        telebot.types.BotCommand("stats", "User count (admin only)"),
+    ]
+    for i, b in bots.items():
+        try:
+            b.set_my_commands(commands)
+            print(f"Bot {i} commands set")
+        except Exception as e:
+            print(f"Bot {i} failed to set commands: {e}")
+
+
 if __name__ == '__main__':
     init_db()
+    set_commands()
     if os.environ.get('RAILWAY_ENVIRONMENT') or os.environ.get('RAILWAY_STATIC_URL'):
         set_webhook()
         port = int(os.environ.get('PORT', 5000))
