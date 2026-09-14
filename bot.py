@@ -106,7 +106,14 @@ def get_conn():
 def init_db():
     conn = get_conn()
     c = conn.cursor()
-    c.execute("""CREATE TABLE IF NOT EXISTS users ( user_id INTEGER PRIMARY KEY, username TEXT, first_name TEXT, chat_id INTEGER, lang TEXT DEFAULT 'en', created_at TEXT )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS users (
+        user_id INTEGER PRIMARY KEY,
+        username TEXT,
+        first_name TEXT,
+        chat_id INTEGER,
+        lang TEXT DEFAULT 'en',
+        created_at TEXT
+    )""")
     conn.commit()
     conn.close()
 
@@ -115,7 +122,13 @@ def save_user(user, chat_id, lang="en"):
     conn = get_conn()
     c = conn.cursor()
     c.execute(
-        """INSERT INTO users (user_id, username, first_name, chat_id, lang, created_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET username = excluded.username, first_name = excluded.first_name, chat_id = excluded.chat_id, lang = excluded.lang""",
+        """INSERT INTO users (user_id, username, first_name, chat_id, lang, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(user_id) DO UPDATE SET
+               username = excluded.username,
+               first_name = excluded.first_name,
+               chat_id = excluded.chat_id,
+               lang = excluded.lang""",
         (user.id, user.username, user.first_name, chat_id, lang, datetime.now().isoformat())
     )
     conn.commit()
@@ -154,20 +167,20 @@ def build_menu_buttons(lang="en", user_id=None):
 
 # ---------- HANDLERS ----------
 def register_handlers(bot):
-@bot.message_handler(commands=['start'])
+    @bot.message_handler(commands=['start'])
     def send_welcome(message):
         lang = user_lang.get(message.from_user.id, "en")
         save_user(message.from_user, message.chat.id, lang)
         bot.send_message(message.chat.id, LANG[lang]["welcome"], reply_markup=build_menu_buttons(lang, message.from_user.id))
 
-@bot.message_handler(commands=['stats'])
+    @bot.message_handler(commands=['stats'])
     def stats_command(message):
         if message.from_user.id != ADMIN_ID:
             bot.reply_to(message, "⛔ You are not authorized to use this command.")
             return
         bot.reply_to(message, f"📊 *Total users:* {len(get_users())}")
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("lang_"))
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("lang_"))
     def language_handler(call):
         lang = call.data[5:]
         user_lang[call.from_user.id] = lang
@@ -180,7 +193,7 @@ def register_handlers(bot):
         )
         bot.answer_callback_query(call.id)
 
-@bot.callback_query_handler(func=lambda call: call.data == "bcast")
+    @bot.callback_query_handler(func=lambda call: call.data == "bcast")
     def broadcast_callback(call):
         if call.from_user.id != ADMIN_ID:
             bot.answer_callback_query(call.id, "⛔ Only admin can broadcast.")
@@ -203,11 +216,11 @@ def register_handlers(bot):
                 fail += 1
         bot.reply_to(message, f"✅ Broadcast sent to {success} users.\n❌ Failed: {fail}")
 
-@bot.callback_query_handler(func=lambda call: True)
+    @bot.callback_query_handler(func=lambda call: True)
     def callback_handler(call):
         bot.answer_callback_query(call.id)
 
-@bot.message_handler(func=lambda message: True)
+    @bot.message_handler(func=lambda message: True)
     def default_handler(message):
         lang = user_lang.get(message.from_user.id, "en")
         bot.reply_to(message, LANG[lang]["fallback"], reply_markup=build_menu_buttons(lang, message.from_user.id))
