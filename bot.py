@@ -180,6 +180,11 @@ def register_handlers(bot):
             return
         bot.reply_to(message, f"📊 *Total users:* {len(get_users())}")
 
+    @bot.message_handler(commands=['services'])
+    def services_command(message):
+        lang = user_lang.get(message.from_user.id, "en")
+        bot.send_message(message.chat.id, LANG[lang]["welcome"], reply_markup=build_menu_buttons(lang, message.from_user.id))
+
     @bot.callback_query_handler(func=lambda call: call.data.startswith("lang_"))
     def language_handler(call):
         lang = call.data[5:]
@@ -261,6 +266,7 @@ def set_webhook():
 def set_commands():
     commands = [
         telebot.types.BotCommand("start", "Start the bot"),
+        telebot.types.BotCommand("services", "Services & contact buttons"),
         telebot.types.BotCommand("stats", "User count (admin only)"),
     ]
     for i, b in bots.items():
