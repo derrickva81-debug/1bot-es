@@ -14,7 +14,12 @@ ADMIN_ID = int(os.environ.get("ADMIN_ID", "1234567890"))
 CONTACT_LINK = os.environ.get("CONTACT_LINK", "https://t.me/your_contact")
 GROUP_LINK = os.environ.get("GROUP_LINK", "https://t.me/your_group")
 BACKUP_GROUP_LINK = os.environ.get("BACKUP_GROUP_LINK", "https://t.me/your_backup_group")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://your-app.railway.app")
+webhook_url = os.environ.get("WEBHOOK_URL") or os.environ.get(
+    "RAILWAY_PUBLIC_DOMAIN", "https://your-app.railway.app"
+)
+if not webhook_url.startswith("http"):
+    webhook_url = "https://" + webhook_url
+WEBHOOK_URL = webhook_url.rstrip("/")
 DB_PATH = "users.db"
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="Markdown")
