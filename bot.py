@@ -2,14 +2,19 @@ import os
 import time
 import sqlite3
 from datetime import datetime
-from dotenv import load_dotenv
 from flask import Flask, request, jsonify
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = lambda: None
+
 load_dotenv()
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
+BOT_TOKENS = [t.strip() for t in (os.environ.get("BOT_TOKENS") or BOT_TOKEN).split(",") if t.strip()]
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "1234567890"))
 CONTACT_LINK = os.environ.get("CONTACT_LINK", "https://t.me/your_contact")
 GROUP_LINK = os.environ.get("GROUP_LINK", "https://t.me/your_group")
@@ -22,7 +27,7 @@ if not webhook_url.startswith("http"):
 WEBHOOK_URL = webhook_url.rstrip("/")
 DB_PATH = "users.db"
 
-bot = telebot.TeleBot(BOT_TOKEN, parse_mode="Markdown")
+bots = {i: telebot.TeleBot(token, parse_mode="Markdown") for i, token in enumerate(BOT_TOKENS)}
 app = Flask(__name__)
 
 LANG = {
@@ -101,14 +106,7 @@ def get_conn():
 def init_db():
     conn = get_conn()
     c = conn.cursor()
-    c.execute("""CREATE TABLE IF NOT EXISTS users (
-        user_id INTEGER PRIMARY KEY,
-        username TEXT,
-        first_name TEXT,
-        chat_id INTEGER,
-        lang TEXT DEFAULT 'en',
-        created_at TEXT
-    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS users ( user_id INTEGER PRIMARY KEY, username TEXT, first_name TEXT, chat_id INTEGER, lang TEXT DEFAULT 'en', created_at TEXT )""")
     conn.commit()
     conn.close()
 
@@ -117,13 +115,7 @@ def save_user(user, chat_id, lang="en"):
     conn = get_conn()
     c = conn.cursor()
     c.execute(
-        """INSERT INTO users (user_id, username, first_name, chat_id, lang, created_at)
-           VALUES (?, ?, ?, ?, ?, ?)
-           ON CONFLICT(user_id) DO UPDATE SET
-               username = excluded.username,
-               first_name = excluded.first_name,
-               chat_id = excluded.chat_id,
-               lang = excluded.lang""",
+        """INSERT INTO users (user_id, username, first_name, chat_id, lang, created_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET username = excluded.username, first_name = excluded.first_name, chat_id = excluded.chat_id, lang = excluded.lang""",
         (user.id, user.username, user.first_name, chat_id, lang, datetime.now().isoformat())
     )
     conn.commit()
@@ -160,72 +152,69 @@ def build_menu_buttons(lang="en", user_id=None):
     return markup
 
 
-# ---------- COMMANDS ----------
+# ---------- HANDLERS ----------
+def register_handlers(bot):
 @bot.message_handler(commands=['start'])
-def send_welcome(message):
-    lang = user_lang.get(message.from_user.id, "en")
-    save_user(message.from_user, message.chat.id, lang)
-    bot.send_message(message.chat.id, LANG[lang]["welcome"], reply_markup=build_menu_buttons(lang, message.from_user.id))
-
+    def send_welcome(message):
+        lang = user_lang.get(message.from_user.id, "en")
+        save_user(message.from_user, message.chat.id, lang)
+        bot.send_message(message.chat.id, LANG[lang]["welcome"], reply_markup=build_menu_buttons(lang, message.from_user.id))
 
 @bot.message_handler(commands=['stats'])
-def stats_command(message):
-    if message.from_user.id != ADMIN_ID:
-        bot.reply_to(message, "⛔ You are not authorized to use this command.")
-        return
-    bot.reply_to(message, f"📊 *Total users:* {len(get_users())}")
+    def stats_command(message):
+        if message.from_user.id != ADMIN_ID:
+            bot.reply_to(message, "⛔ You are not authorized to use this command.")
+            return
+        bot.reply_to(message, f"📊 *Total users:* {len(get_users())}")
 
-
-# ---------- CALLBACKS ----------
 @bot.callback_query_handler(func=lambda call: call.data.startswith("lang_"))
-def language_handler(call):
-    lang = call.data[5:]
-    user_lang[call.from_user.id] = lang
-    update_lang(call.from_user.id, lang)
-    bot.edit_message_text(
-        LANG[lang]["welcome"],
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=build_menu_buttons(lang, call.from_user.id)
-    )
-    bot.answer_callback_query(call.id)
-
+    def language_handler(call):
+        lang = call.data[5:]
+        user_lang[call.from_user.id] = lang
+        update_lang(call.from_user.id, lang)
+        bot.edit_message_text(
+            LANG[lang]["welcome"],
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=build_menu_buttons(lang, call.from_user.id)
+        )
+        bot.answer_callback_query(call.id)
 
 @bot.callback_query_handler(func=lambda call: call.data == "bcast")
-def broadcast_callback(call):
-    if call.from_user.id != ADMIN_ID:
-        bot.answer_callback_query(call.id, "⛔ Only admin can broadcast.")
-        return
-    msg = bot.send_message(call.message.chat.id, "📢 *Broadcast:* enter the message to send to all users:")
-    bot.register_next_step_handler(msg, send_broadcast)
-    bot.answer_callback_query(call.id)
+    def broadcast_callback(call):
+        if call.from_user.id != ADMIN_ID:
+            bot.answer_callback_query(call.id, "⛔ Only admin can broadcast.")
+            return
+        msg = bot.send_message(call.message.chat.id, "📢 *Broadcast:* enter the message to send to all users:")
+        bot.register_next_step_handler(msg, send_broadcast)
+        bot.answer_callback_query(call.id)
 
-
-def send_broadcast(message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    text = message.text
-    success = 0
-    fail = 0
-    for user_id, username, first_name, chat_id, lang, created_at in get_users():
-        try:
-            bot.send_message(chat_id, f"📢 *Broadcast:*\n\n{text}", parse_mode=None)
-            success += 1
-        except Exception:
-            fail += 1
-    bot.reply_to(message, f"✅ Broadcast sent to {success} users.\n❌ Failed: {fail}")
-
+    def send_broadcast(message):
+        if message.from_user.id != ADMIN_ID:
+            return
+        text = message.text
+        success = 0
+        fail = 0
+        for user_id, username, first_name, chat_id, lang, created_at in get_users():
+            try:
+                bot.send_message(chat_id, f"📢 *Broadcast:*\n\n{text}", parse_mode=None)
+                success += 1
+            except Exception:
+                fail += 1
+        bot.reply_to(message, f"✅ Broadcast sent to {success} users.\n❌ Failed: {fail}")
 
 @bot.callback_query_handler(func=lambda call: True)
-def callback_handler(call):
-    bot.answer_callback_query(call.id)
+    def callback_handler(call):
+        bot.answer_callback_query(call.id)
 
-
-# ---------- DEFAULT HANDLER ----------
 @bot.message_handler(func=lambda message: True)
-def default_handler(message):
-    lang = user_lang.get(message.from_user.id, "en")
-    bot.reply_to(message, LANG[lang]["fallback"], reply_markup=build_menu_buttons(lang, message.from_user.id))
+    def default_handler(message):
+        lang = user_lang.get(message.from_user.id, "en")
+        bot.reply_to(message, LANG[lang]["fallback"], reply_markup=build_menu_buttons(lang, message.from_user.id))
+
+
+for bot in bots.values():
+    register_handlers(bot)
 
 
 # ---------- FLASK WEBHOOK ----------
@@ -234,20 +223,26 @@ def home():
     return "Bot is running!"
 
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
+@app.route('/webhook/<int:bot_id>', methods=['POST'])
+def webhook(bot_id):
+    if bot_id not in bots:
+        return jsonify({"status": "not found"}), 404
     json_str = request.get_data(as_text=True)
     update = telebot.types.Update.de_json(json_str)
-    bot.process_new_updates([update])
+    try:
+        bots[bot_id].process_new_updates([update])
+    except Exception as e:
+        print(f"Error processing update for bot {bot_id}: {e}")
     return jsonify({"status": "ok"}), 200
 
 
 def set_webhook():
     time.sleep(1)
-    bot.remove_webhook()
-    full_url = f"{WEBHOOK_URL.rstrip('/')}/webhook"
-    bot.set_webhook(url=full_url)
-    print(f"Webhook set to {full_url}")
+    for i, b in bots.items():
+        b.remove_webhook()
+        full_url = f"{WEBHOOK_URL}/webhook/{i}"
+        b.set_webhook(url=full_url)
+        print(f"Webhook set to {full_url}")
 
 
 if __name__ == '__main__':
@@ -257,6 +252,10 @@ if __name__ == '__main__':
         port = int(os.environ.get('PORT', 5000))
         app.run(host='0.0.0.0', port=port)
     else:
-        bot.remove_webhook()
-        print("Starting polling...")
-        bot.infinity_polling()
+        import threading
+        for i, b in bots.items():
+            b.remove_webhook()
+            threading.Thread(target=b.infinity_polling, daemon=True).start()
+            print(f"Bot {i} polling...")
+        while True:
+            time.sleep(60)
