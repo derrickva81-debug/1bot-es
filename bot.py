@@ -15,6 +15,8 @@ load_dotenv()
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
 BOT_TOKENS = [t.strip() for t in (os.environ.get("BOT_TOKENS") or BOT_TOKEN).split(",") if t.strip()]
+BOT_NAMES = [n.strip() for n in os.environ.get("BOT_NAMES", "").split("|") if n.strip()]
+BOT_DESCRIPTIONS = [d.strip() for d in os.environ.get("BOT_DESCRIPTIONS", "").split("|") if d.strip()]
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "1234567890"))
 CONTACT_LINK = os.environ.get("CONTACT_LINK", "https://t.me/your_contact")
 GROUP_LINK = os.environ.get("GROUP_LINK", "https://t.me/your_group")
@@ -263,6 +265,19 @@ def set_webhook():
         print(f"Webhook set to {full_url}")
 
 
+def set_branding():
+    for i, b in bots.items():
+        try:
+            if i < len(BOT_NAMES) and BOT_NAMES[i]:
+                b.set_my_name(name=BOT_NAMES[i])
+                print(f"Bot {i} name set: {BOT_NAMES[i]}")
+            if i < len(BOT_DESCRIPTIONS) and BOT_DESCRIPTIONS[i]:
+                b.set_my_description(description=BOT_DESCRIPTIONS[i])
+                print(f"Bot {i} description set")
+        except Exception as e:
+            print(f"Bot {i} branding failed: {e}")
+
+
 def set_commands():
     commands = [
         telebot.types.BotCommand("start", "Start the bot"),
@@ -279,6 +294,7 @@ def set_commands():
 
 if __name__ == '__main__':
     init_db()
+    set_branding()
     set_commands()
     if os.environ.get('RAILWAY_ENVIRONMENT') or os.environ.get('RAILWAY_STATIC_URL'):
         set_webhook()
